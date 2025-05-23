@@ -404,7 +404,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponseToPop
     console.log(`Requesting translation for ${textsToTranslateArray.length} texts to ${targetLanguage} (generic page).`);
 
     chrome.runtime.sendMessage(
-      { action: "translateMicrosoft", texts: textsToTranslateArray, targetLanguage: targetLanguage },
+      { action: "translatePageContent", texts: textsToTranslateArray, targetLanguage: targetLanguage },
       function(responseFromBackground) {
         // ... (rest of generic page translation logic remains the same) ...
         if (chrome.runtime.lastError) {
@@ -437,6 +437,61 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponseToPop
       }
     );
     return true; 
+  } else if (request.action === "shortcutTranslate") {
+    console.log("Received 'shortcutTranslate' message from background script.");
+    
+    removePreviousTranslations();
+    const elementsToTranslate = extractTextAndElements();
+    console.log("Elements to translate (shortcut):", elementsToTranslate);
+
+    if (elementsToTranslate.length === 0) {
+      console.log("No text found to translate (shortcut).");
+      // Optionally, provide some visual feedback on the page if no text is found.
+      return false; // No async response needed from this handler itself if not sending back to background
+    }
+
+    const textsToTranslateArray = elementsToTranslate.map(item => item.text);
+    const targetLanguage = "zh-Hans"; // This can be a default or fetched from settings later
+
+    console.log(`Requesting translation for ${textsToTranslateArray.length} texts to ${targetLanguage} (shortcut).`);
+    
+    chrome.runtime.sendMessage(
+      { action: "translatePageContent", texts: textsToTranslateArray, targetLanguage: targetLanguage },
+      function(responseFromBackground) {
+        if (chrome.runtime.lastError) {
+          console.error("Error sending/receiving from background (shortcut):", chrome.runtime.lastError.message);
+          // No sendResponseToPopup here as this isn't from a popup
+          return;
+        }
+        if (responseFromBackground.error) {
+          console.error("Translation API Error (shortcut):", responseFromBackground.error);
+          // Optionally display error on page
+          // No sendResponseToPopup here
+          return;
+        }
+        if (responseFromBackground.translatedTexts && responseFromBackground.translatedTexts.length === elementsToTranslate.length) {
+          elementsToTranslate.forEach((item, index) => {
+            const translatedText = responseFromBackground.translatedTexts[index];
+            let translatedElement = document.createElement('div');
+            translatedElement.textContent = translatedText;
+            translatedElement.classList.add('immersive-translate-clone');
+            translatedElement.style.color = 'blue'; 
+            // Ensure styling is consistent with other translations if needed
+            if (item.originalElement.parentNode) {
+              item.originalElement.parentNode.insertBefore(translatedElement, item.originalElement.nextSibling);
+            } else {
+              document.body.appendChild(translatedElement);
+            }
+          });
+          console.log("Shortcut translation displayed.");
+          // No sendResponseToPopup here
+        } else {
+          console.error("Mismatch in translated texts count (shortcut).");
+          // No sendResponseToPopup here
+        }
+      }
+    );
+    return true; // Indicate that an async response will be sent by the translation logic.
   }
 });
 

@@ -11,6 +11,7 @@
     "*://*.youtube.com/*",
     "*://*.googlevideo.com/*"
   ],
+  "options_page": "options.html",
   "action": {
     "default_popup": "popup.html",
     "default_icon": "icon.png"
@@ -23,5 +24,14 @@
       "matches": ["<all_urls>"],
       "js": ["content.js"]
     }
-  ]
+  ],
+  "commands": {
+    "trigger-on-page-translation": {
+      "suggested_key": {
+        "default": "Ctrl+D",
+        "mac": "Command+D"
+      },
+      "description": "Trigger on-page text translation"
+    }
+  }
 }

@@ -1,14 +1,24 @@
 console.log("Background script loaded for Immersive Translate.");
 
-// IMPORTANT: FOR DEVELOPMENT ONLY! Replace with your actual Microsoft Translator API key.
-const MS_TRANSLATOR_API_KEY = "YOUR_API_KEY_HERE";
-// IMPORTANT: Specify the region associated with your API key if applicable (e.g., "eastus").
-// Note: This key and region may also be used for Azure Speech Service (TTS).
-// Ensure your Azure resource supports both Translation and Speech, or configure separate keys/regions if needed.
-const MS_TRANSLATOR_REGION = "YOUR_REGION_HERE"; // e.g., "eastus", remove or leave empty if not strictly needed by your key type
-
-// IMPORTANT: FOR DEVELOPMENT ONLY! Replace with your actual Google Cloud API Key.
-const GOOGLE_TRANSLATE_API_KEY = "YOUR_GOOGLE_API_KEY_HERE";
+// Helper function to get settings from chrome.storage.local
+async function getStoredSettings() {
+  const keys = ['msApiKey', 'msApiRegion', 'googleApiKey', 'translationService'];
+  try {
+    const items = await new Promise((resolve, reject) => {
+      chrome.storage.local.get(keys, (result) => {
+        if (chrome.runtime.lastError) {
+          return reject(chrome.runtime.lastError);
+        }
+        resolve(result);
+      });
+    });
+    return items;
+  } catch (error) {
+    console.error("Error getting stored settings:", error);
+    // Return an empty object or defaults if critical, or rethrow/reject
+    return Promise.reject(error); 
+  }
+}
 
 function escapeXml(unsafeText) {
   return unsafeText
@@ -29,21 +39,41 @@ function arrayBufferToBase64(buffer) {
 }
 
 async function translateTextsWithMicrosoftAPI(texts, targetLanguage) {
-  if (MS_TRANSLATOR_API_KEY === "YOUR_API_KEY_HERE") {
-    console.error("Microsoft Translator API key not configured. Please update background.js.");
-    return Promise.reject("Microsoft API key not configured");
+  let settings;
+  try {
+    settings = await getStoredSettings();
+  } catch (error) {
+    return Promise.reject("Failed to retrieve settings for Microsoft API: " + error.message);
   }
+
+  const msApiKey = settings.msApiKey;
+  const msApiRegion = settings.msApiRegion;
+
+  if (!msApiKey || msApiKey.trim() === "" || msApiKey === "YOUR_API_KEY_HERE") {
+    console.error("Microsoft Translator API key not configured in options.");
+    return Promise.reject("Microsoft API key not configured in options.");
+  }
+  // Region can sometimes be optional or not applicable for global endpoints, but good to check if your key type requires it.
+  // For this exercise, we'll assume it might be needed but won't strictly enforce it beyond the key.
+  if (!msApiRegion || msApiRegion.trim() === "" || msApiRegion === "YOUR_REGION_HERE") {
+     console.warn("Microsoft Translator API region might not be configured in options. Proceeding without it if possible.");
+     // Some keys/endpoints might not strictly require a region header, especially if it's a global resource.
+     // If your key specifically needs it, then this should be an error:
+     // return Promise.reject("Microsoft API region not configured in options.");
+  }
+
 
   const apiUrl = `https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${targetLanguage}`;
   const requestBody = texts.map(text => ({ "Text": text }));
 
   const headers = {
-    'Ocp-Apim-Subscription-Key': MS_TRANSLATOR_API_KEY,
+    'Ocp-Apim-Subscription-Key': msApiKey,
     'Content-Type': 'application/json; charset=UTF-8'
   };
 
-  if (MS_TRANSLATOR_REGION && MS_TRANSLATOR_REGION !== "YOUR_REGION_HERE" && MS_TRANSLATOR_REGION.trim() !== "") {
-    headers['Ocp-Apim-Subscription-Region'] = MS_TRANSLATOR_REGION;
+  // Only add region header if it's configured and not the placeholder
+  if (msApiRegion && msApiRegion.trim() !== "" && msApiRegion !== "YOUR_REGION_HERE") {
+    headers['Ocp-Apim-Subscription-Region'] = msApiRegion;
   }
 
   try {
@@ -68,12 +98,21 @@ async function translateTextsWithMicrosoftAPI(texts, targetLanguage) {
 }
 
 async function translateTextsWithGoogleAPI(texts, targetLanguage, sourceLanguage) {
-  if (GOOGLE_TRANSLATE_API_KEY === "YOUR_GOOGLE_API_KEY_HERE") {
-    console.error("Google Translate API key not configured. Please update background.js.");
-    return Promise.reject("Google API key not configured");
+  let settings;
+  try {
+    settings = await getStoredSettings();
+  } catch (error) {
+    return Promise.reject("Failed to retrieve settings for Google API: " + error.message);
+  }
+  
+  const googleApiKey = settings.googleApiKey;
+
+  if (!googleApiKey || googleApiKey.trim() === "" || googleApiKey === "YOUR_GOOGLE_API_KEY_HERE") {
+    console.error("Google Translate API key not configured in options.");
+    return Promise.reject("Google API key not configured in options.");
   }
 
-  const apiUrl = `https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_TRANSLATE_API_KEY}`;
+  const apiUrl = `https://translation.googleapis.com/language/translate/v2?key=${googleApiKey}`;
   
   const requestPayload = {
     q: texts,
@@ -120,16 +159,26 @@ async function translateTextsWithGoogleAPI(texts, targetLanguage, sourceLanguage
 }
 
 async function synthesizeSpeechWithAzureTTS(text, languageCode, voiceName) {
-  if (MS_TRANSLATOR_API_KEY === "YOUR_API_KEY_HERE") {
-    console.error("Azure API key not configured for Speech. Please update background.js.");
-    return Promise.reject("Azure API key not configured for Speech");
-  }
-  if (MS_TRANSLATOR_REGION === "YOUR_REGION_HERE" || !MS_TRANSLATOR_REGION) {
-    console.error("Azure region not configured for Speech. Please update background.js.");
-    return Promise.reject("Azure region not configured for Speech");
+  let settings;
+  try {
+    settings = await getStoredSettings();
+  } catch (error) {
+    return Promise.reject("Failed to retrieve settings for Azure TTS: " + error.message);
   }
 
-  const ttsApiUrl = `https://${MS_TRANSLATOR_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  const azureSpeechKey = settings.msApiKey; // Using msApiKey for Azure Speech
+  const azureSpeechRegion = settings.msApiRegion; // Using msApiRegion for Azure Speech
+
+  if (!azureSpeechKey || azureSpeechKey.trim() === "" || azureSpeechKey === "YOUR_API_KEY_HERE") {
+    console.error("Azure Speech API key not configured in options (uses Microsoft Translator key).");
+    return Promise.reject("Azure Speech API key not configured in options.");
+  }
+  if (!azureSpeechRegion || azureSpeechRegion.trim() === "" || azureSpeechRegion === "YOUR_REGION_HERE") {
+    console.error("Azure Speech API region not configured in options (uses Microsoft Translator region).");
+    return Promise.reject("Azure Speech API region not configured in options.");
+  }
+
+  const ttsApiUrl = `https://${azureSpeechRegion}.tts.speech.microsoft.com/cognitiveservices/v1`;
   
   const ssmlBody = `
     <speak version='1.0' xml:lang='${languageCode}'>
@@ -140,7 +189,7 @@ async function synthesizeSpeechWithAzureTTS(text, languageCode, voiceName) {
   `;
 
   const headers = {
-    'Ocp-Apim-Subscription-Key': MS_TRANSLATOR_API_KEY,
+    'Ocp-Apim-Subscription-Key': azureSpeechKey,
     'Content-Type': 'application/ssml+xml',
     'X-Microsoft-OutputFormat': 'audio-24khz-160kbitrate-mono-mp3',
     'User-Agent': 'ImmersiveTranslateExtension/0.1'
@@ -170,64 +219,104 @@ async function synthesizeSpeechWithAzureTTS(text, languageCode, voiceName) {
 
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (request.action === "translateMicrosoft") {
-    console.log("Received translateMicrosoft message with texts:", request.texts, "and target language:", request.targetLanguage);
+  // Route for generic page translation (from popup.js)
+  if (request.action === "translatePageContent") { // Renamed for clarity
+    console.log("Received translatePageContent message with texts:", request.texts, "and target language:", request.targetLanguage);
     if (!request.texts || !request.targetLanguage) {
-      console.error("Invalid Microsoft translate request: texts or targetLanguage missing.");
-      sendResponse({ error: "Invalid Microsoft translate request: texts or targetLanguage missing." });
+      console.error("Invalid translatePageContent request: texts or targetLanguage missing.");
+      sendResponse({ error: "Invalid translatePageContent request: texts or targetLanguage missing." });
       return false; 
     }
 
-    translateTextsWithMicrosoftAPI(request.texts, request.targetLanguage)
-      .then(translatedTexts => {
-        sendResponse({ translatedTexts: translatedTexts });
-      })
-      .catch(error => {
-        sendResponse({ error: error.toString() });
-      });
+    getStoredSettings().then(settings => {
+      const preferredService = settings.translationService || 'microsoft'; // Default to Microsoft
+
+      if (preferredService === 'google') {
+        console.log("Using Google Translate for page content.");
+        translateTextsWithGoogleAPI(request.texts, request.targetLanguage, request.sourceLanguage)
+          .then(translatedTexts => sendResponse({ translatedTexts: translatedTexts }))
+          .catch(error => sendResponse({ error: error.toString() }));
+      } else { // Default to Microsoft
+        console.log("Using Microsoft Translator for page content.");
+        translateTextsWithMicrosoftAPI(request.texts, request.targetLanguage)
+          .then(translatedTexts => sendResponse({ translatedTexts: translatedTexts }))
+          .catch(error => sendResponse({ error: error.toString() }));
+      }
+    }).catch(error => {
+      console.error("Failed to get stored settings for page translation:", error);
+      sendResponse({ error: "Failed to get stored settings: " + error.message });
+    });
     
-    return true;
+    return true; // Indicates that the response will be sent asynchronously
   
+  // Route for YouTube caption translation (from content.js) - Stays with Microsoft
+  } else if (request.action === "translateMicrosoft") { 
+    console.log("Received translateMicrosoft message (likely for YouTube captions) with texts:", request.texts, "and target language:", request.targetLanguage);
+    if (!request.texts || !request.targetLanguage) {
+      console.error("Invalid translateMicrosoft request: texts or targetLanguage missing.");
+      sendResponse({ error: "Invalid translateMicrosoft request: texts or targetLanguage missing." });
+      return false; 
+    }
+    translateTextsWithMicrosoftAPI(request.texts, request.targetLanguage)
+      .then(translatedTexts => sendResponse({ translatedTexts: translatedTexts }))
+      .catch(error => sendResponse({ error: error.toString() }));
+    return true;
+
+  // This route might become redundant if the generic "translatePageContent" is always used by content scripts
+  // that want to respect user preference. For now, keeping it means a direct call to Google is still possible.
   } else if (request.action === "translateGoogle") {
-    console.log("Received translateGoogle message with texts:", request.texts, 
+    console.log("Received direct translateGoogle message with texts:", request.texts, 
                 "target language:", request.targetLanguage, 
                 "source language:", request.sourceLanguage);
-
     if (!request.texts || !request.targetLanguage) {
       console.error("Invalid Google translate request: texts or targetLanguage missing.");
       sendResponse({ error: "Invalid Google translate request: texts or targetLanguage missing." });
       return false;
     }
-
     translateTextsWithGoogleAPI(request.texts, request.targetLanguage, request.sourceLanguage)
-      .then(translatedTexts => {
-        sendResponse({ translatedTexts: translatedTexts });
-      })
-      .catch(error => {
-        sendResponse({ error: error.toString() });
-      });
-      
+      .then(translatedTexts => sendResponse({ translatedTexts: translatedTexts }))
+      .catch(error => sendResponse({ error: error.toString() }));
     return true;
   
   } else if (request.action === "synthesizeSpeechAzure") {
     console.log("Received synthesizeSpeechAzure message with text:", request.text,
                 "languageCode:", request.languageCode,
                 "voiceName:", request.voiceName);
-
     if (!request.text || !request.languageCode || !request.voiceName) {
       console.error("Invalid Azure TTS request: text, languageCode, or voiceName missing.");
       sendResponse({ error: "Invalid Azure TTS request: text, languageCode, or voiceName missing." });
       return false;
     }
-
     synthesizeSpeechWithAzureTTS(request.text, request.languageCode, request.voiceName)
-      .then(audioDataUri => {
-        sendResponse({ audioDataUri: audioDataUri });
-      })
-      .catch(error => {
-        sendResponse({ error: error.toString() });
-      });
-      
+      .then(audioDataUri => sendResponse({ audioDataUri: audioDataUri }))
+      .catch(error => sendResponse({ error: error.toString() }));
     return true;
+  }
+});
+
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command === "trigger-on-page-translation") {
+    console.log("Keyboard shortcut 'trigger-on-page-translation' received.");
+    // We need to ensure 'tab' is the active tab where the command was issued.
+    // The 'tab' parameter here is the tab that was active when the command was executed.
+    if (tab && tab.id) {
+      try {
+        // Ensure the tab is active and in the current window before sending.
+        // This is a good practice, though 'tab' from onCommand should be the active one.
+        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTabs && activeTabs.length > 0 && activeTabs[0].id === tab.id) {
+          await chrome.tabs.sendMessage(tab.id, { action: "shortcutTranslate" });
+          console.log("Sent 'shortcutTranslate' message to tab:", tab.id);
+        } else {
+          console.warn("Command received, but the tab provided by the event is not the currently active tab. Message not sent.", tab, activeTabs);
+        }
+      } catch (error) {
+        console.error("Error sending 'shortcutTranslate' message to tab:", tab.id, error.message);
+        // This can happen if the content script isn't loaded on the page (e.g., chrome:// pages)
+        // or if the tab was closed before the message could be sent.
+      }
+    } else {
+        console.warn("Command received but no valid tab information provided.");
+    }
   }
 });
